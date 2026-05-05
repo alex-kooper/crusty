@@ -91,9 +91,9 @@ impl Ledger for JsonApiLedger {
         Ok(api_resp.party_details.into_iter().map(to_domain_party).collect())
     }
 
-    fn create_party(&self, hint: &PartyHint) -> Result<Party, LedgerError> {
+    fn create_party(&self, hint: Option<&PartyHint>) -> Result<Party, LedgerError> {
         let mut req = models::AllocatePartyRequest::new();
-        req.party_id_hint = Some(hint.as_ref().to_string());
+        req.party_id_hint = hint.map(|h| h.as_ref().to_string());
 
         let resp = self.post_json("/v2/parties", &req)?;
         let status = resp.status();

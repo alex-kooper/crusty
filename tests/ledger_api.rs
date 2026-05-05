@@ -3,16 +3,16 @@
 use url::Url;
 
 use crusty::config::{AuthConfig, LedgerConfig};
-use crusty::domain::error::LedgerError;
-use crusty::domain::ledger::Ledger;
+use crusty::domain::error::{LedgerError, PartyError};
 use crusty::domain::party::{PartyHint, PartyId};
+use crusty::domain::services::{LedgerService, PartyFilter};
 use crusty::json_api::JsonApiLedger;
 
 fn get_env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("env var {} must be set", name))
 }
 
-fn create_ledger() -> JsonApiLedger {
+fn create_service() -> LedgerService<JsonApiLedger> {
     dotenvy::dotenv().ok();
 
     let config = LedgerConfig {
@@ -26,13 +26,14 @@ fn create_ledger() -> JsonApiLedger {
         },
     };
 
-    JsonApiLedger::new(config).expect("failed to create ledger")
+    let ledger = JsonApiLedger::new(config).expect("failed to create ledger");
+    LedgerService::new(ledger)
 }
 
 #[test]
 fn test_get_participant_id() {
-    let ledger = create_ledger();
-    let participant_id = ledger.get_participant_id().expect("get_participant_id failed");
+    let service = create_service();
+    let participant_id = service.get_participant_id().expect("get_participant_id failed");
     let id_str: &str = participant_id.as_ref();
     assert!(!id_str.is_empty(), "participant ID should not be empty");
     println!("\n--- Get Participant ID ---");
@@ -41,11 +42,28 @@ fn test_get_participant_id() {
 }
 
 #[test]
-fn test_list_parties() {
-    let ledger = create_ledger();
-    let parties = ledger.list_parties().expect("list_parties failed");
+fn test_list_parties_default_filter() {
+    let service = create_service();
+    let filter = PartyFilter::default();
+    let parties = service.list_parties(&filter).expect("list_parties failed");
+    println!("\n--- List Parties: local, no system ({} total) ---", parties.len());
+    for party in &parties {
+        assert!(party.is_local, "default filter should only return local parties");
+        println!("  {}", party.id);
+    }
+    println!();
+}
+
+#[test]
+fn test_list_parties_all() {
+    let service = create_service();
+    let filter = PartyFilter {
+        include_remote: true,
+        include_system: true,
+    };
+    let parties = service.list_parties(&filter).expect("list_parties failed");
     assert!(!parties.is_empty(), "should have at least one party");
-    println!("\n--- List Parties ({} total) ---", parties.len());
+    println!("\n--- List Parties: all ({} total) ---", parties.len());
     for party in &parties {
         let local_marker = if party.is_local { "local" } else { "remote" };
         println!("  [{}] {}", local_marker, party.id);
@@ -55,22 +73,17 @@ fn test_list_parties() {
 
 const TEST_PARTY_HINT: &str = "crusty-test";
 
-fn ensure_test_party(ledger: &JsonApiLedger) -> PartyId {
+fn ensure_test_party(service: &LedgerService<JsonApiLedger>) -> PartyId {
     let hint = PartyHint::new(TEST_PARTY_HINT.to_string());
-    match ledger.create_party(&hint) {
+    match service.create_party(Some(&hint)) {
         Ok(party) => {
             println!("  Created new test party: {}", party.id);
             party.id
         }
-        Err(LedgerError::Party(_)) => {
-            // Party already exists — find it in the list
-            let parties = ledger.list_parties().expect("list_parties failed");
-            let party = parties
-                .into_iter()
-                .find(|p| {
-                    let id: &str = p.id.as_ref();
-                    id.starts_with(TEST_PARTY_HINT)
-                })
+        Err(LedgerError::Party(PartyError::AlreadyExists(_))) => {
+            // Party already exists — find it by hint
+            let party = service
+                .find_local_party_by_hint(TEST_PARTY_HINT)
                 .expect("test party should exist after creation attempt");
             println!("  Test party already exists: {}", party.id);
             party.id
@@ -81,9 +94,9 @@ fn ensure_test_party(ledger: &JsonApiLedger) -> PartyId {
 
 #[test]
 fn test_create_party_is_idempotent() {
-    let ledger = create_ledger();
+    let service = create_service();
     println!("\n--- Create Party (idempotent) ---");
-    let party_id = ensure_test_party(&ledger);
+    let party_id = ensure_test_party(&service);
     let id_str: &str = party_id.as_ref();
     assert!(
         id_str.starts_with(TEST_PARTY_HINT),
@@ -94,11 +107,11 @@ fn test_create_party_is_idempotent() {
 
 #[test]
 fn test_get_party() {
-    let ledger = create_ledger();
+    let service = create_service();
     println!("\n--- Get Party ---");
-    let party_id = ensure_test_party(&ledger);
+    let party_id = ensure_test_party(&service);
 
-    let fetched = ledger.get_party(&party_id).expect("get_party failed");
+    let fetched = service.get_party(&party_id).expect("get_party failed");
     assert_eq!(
         fetched.id.as_ref() as &str,
         party_id.as_ref() as &str,
@@ -106,5 +119,21 @@ fn test_get_party() {
     );
     assert!(fetched.is_local, "test party should be local");
     println!("  Fetched: {}", fetched.id);
+    println!();
+}
+
+#[test]
+fn test_find_local_party_by_hint() {
+    let service = create_service();
+    println!("\n--- Find Local Party by Hint ---");
+    ensure_test_party(&service);
+
+    let found = service
+        .find_local_party_by_hint(TEST_PARTY_HINT)
+        .expect("find_local_party_by_hint failed");
+    let id_str: &str = found.id.as_ref();
+    assert!(id_str.starts_with(TEST_PARTY_HINT));
+    assert!(found.is_local);
+    println!("  Found: {}", found.id);
     println!();
 }
