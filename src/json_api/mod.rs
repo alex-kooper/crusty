@@ -1,24 +1,28 @@
 use canton_api_client::models;
 use reqwest::blocking::Client;
 use reqwest::StatusCode;
+use url::Url;
 
+use crate::auth;
+use crate::config::LedgerConfig;
 use crate::domain::error::{LedgerError, PartyError};
 use crate::domain::ledger::Ledger;
 use crate::domain::party::{Party, ParticipantId, PartyHint, PartyId};
 
 pub struct JsonApiLedger {
     client: Client,
-    base_url: String,
+    base_url: Url,
     token: String,
 }
 
 impl JsonApiLedger {
-    pub fn new(base_url: impl Into<String>, token: impl Into<String>) -> Self {
-        Self {
+    pub fn new(config: LedgerConfig) -> Result<Self, LedgerError> {
+        let token = auth::obtain_token(&config.auth)?;
+        Ok(Self {
             client: Client::new(),
-            base_url: base_url.into(),
-            token: token.into(),
-        }
+            base_url: config.ledger_url,
+            token,
+        })
     }
 
     fn get(&self, path: &str) -> Result<reqwest::blocking::Response, LedgerError> {

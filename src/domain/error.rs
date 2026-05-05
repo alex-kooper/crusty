@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::auth::AuthError;
+
 #[derive(Debug, Error)]
 pub enum PartyError {
     #[error("party not found: {0}")]
@@ -13,6 +15,9 @@ pub enum PartyError {
 pub enum LedgerError {
     #[error(transparent)]
     Party(#[from] PartyError),
+
+    #[error(transparent)]
+    Auth(#[from] AuthError),
 
     #[error("unauthorized")]
     Unauthorized,

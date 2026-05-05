@@ -1,5 +1,8 @@
 #![cfg(feature = "integration")]
 
+use url::Url;
+
+use crusty::config::{AuthConfig, LedgerConfig};
 use crusty::domain::error::LedgerError;
 use crusty::domain::ledger::Ledger;
 use crusty::domain::party::{PartyHint, PartyId};
@@ -9,47 +12,21 @@ fn get_env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("env var {} must be set", name))
 }
 
-fn get_token() -> String {
-    let oidc_url = get_env("OAUTH_OIDC_CONF_URL");
-    let client_id = get_env("OAUTH_CLIENT_ID");
-    let client_secret = get_env("OAUTH_CLIENT_SECRET");
-    let audience = get_env("OAUTH_AUDIENCE");
-
-    // Discover the token endpoint from OIDC config
-    let oidc_config: serde_json::Value = reqwest::blocking::get(&oidc_url)
-        .expect("failed to fetch OIDC config")
-        .json()
-        .expect("failed to parse OIDC config");
-
-    let token_endpoint = oidc_config["token_endpoint"]
-        .as_str()
-        .expect("token_endpoint not found in OIDC config");
-
-    // Request token via client_credentials grant
-    let resp: serde_json::Value = reqwest::blocking::Client::new()
-        .post(token_endpoint)
-        .form(&[
-            ("grant_type", "client_credentials"),
-            ("client_id", &client_id),
-            ("client_secret", &client_secret),
-            ("audience", &audience),
-        ])
-        .send()
-        .expect("failed to request token")
-        .json()
-        .expect("failed to parse token response");
-
-    resp["access_token"]
-        .as_str()
-        .expect("access_token not found in token response")
-        .to_string()
-}
-
 fn create_ledger() -> JsonApiLedger {
     dotenvy::dotenv().ok();
-    let token = get_token();
-    let ledger_url = get_env("LEDGER_API_URL");
-    JsonApiLedger::new(ledger_url, token)
+
+    let config = LedgerConfig {
+        ledger_url: Url::parse(&get_env("LEDGER_API_URL")).expect("invalid LEDGER_API_URL"),
+        auth: AuthConfig::ClientCredentials {
+            oidc_url: Url::parse(&get_env("OAUTH_OIDC_CONF_URL"))
+                .expect("invalid OAUTH_OIDC_CONF_URL"),
+            client_id: get_env("OAUTH_CLIENT_ID"),
+            client_secret: get_env("OAUTH_CLIENT_SECRET"),
+            audience: get_env("OAUTH_AUDIENCE"),
+        },
+    };
+
+    JsonApiLedger::new(config).expect("failed to create ledger")
 }
 
 #[test]
