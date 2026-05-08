@@ -1,18 +1,25 @@
 use std::process;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use url::Url;
 
-use crusty::cli::{Cli, Command, PartyCommand};
-use crusty::config::{AuthConfig, LedgerConfig};
+use crusty::cli::{Cli, Command, ConfigCommand, PartyCommand};
+use crusty::config::{AuthConfig, ConfigFile, LedgerConfig};
 use crusty::domain::party::PartyHint;
 use crusty::domain::services::{LedgerService, PartyFilter};
 use crusty::json_api::JsonApiLedger;
 
-fn load_config(env_file: &str) -> Result<LedgerConfig> {
-    dotenvy::from_filename(env_file)
-        .with_context(|| format!("failed to load env file: {}", env_file))?;
+fn load_config_from_env(env_file: Option<&str>) -> Result<LedgerConfig> {
+    match env_file {
+        Some(path) => {
+            dotenvy::from_filename(path)
+                .with_context(|| format!("failed to load env file: {}", path))?;
+        }
+        None => {
+            let _ = dotenvy::from_filename(".env");
+        }
+    }
 
     let ledger_url = Url::parse(&std::env::var("LEDGER_API_URL")?)
         .context("invalid LEDGER_API_URL")?;
@@ -34,46 +41,136 @@ fn load_config(env_file: &str) -> Result<LedgerConfig> {
     Ok(LedgerConfig { ledger_url, auth })
 }
 
+fn load_config(profile: Option<&str>, env_file: Option<&str>) -> Result<LedgerConfig> {
+    if env_file.is_some() {
+        return load_config_from_env(env_file);
+    }
+
+    let config_file = ConfigFile::load()?;
+    if config_file.profiles.is_empty() && profile.is_none() {
+        return load_config_from_env(None);
+    }
+
+    let p = config_file.get_profile(profile)?;
+    p.to_ledger_config()
+}
+
+fn run_config_command(command: ConfigCommand) -> Result<()> {
+    match command {
+        ConfigCommand::Init { template } => {
+            let profile = match template.as_str() {
+                "quickstart" => ConfigFile::quickstart_profile(),
+                _ => bail!("unknown template: '{}'. Available: quickstart", template),
+            };
+
+            let mut config = ConfigFile::load()?;
+            if config.profiles.contains_key(&template) {
+                bail!(
+                    "profile '{}' already exists. Remove it from the config file first to reinitialize.",
+                    template
+                );
+            }
+            config.profiles.insert(template.clone(), profile);
+            if config.default_profile.is_none() {
+                config.default_profile = Some(template.clone());
+            }
+            config.save()?;
+
+            let path = ConfigFile::config_path()?;
+            println!("Profile '{}' added to {}", template, path.display());
+            if config.default_profile.as_deref() == Some(&template) {
+                println!("Set as default profile");
+            }
+        }
+
+        ConfigCommand::Use { profile } => {
+            let mut config = ConfigFile::load()?;
+            if !config.profiles.contains_key(&profile) {
+                bail!("profile '{}' not found in config", profile);
+            }
+            config.default_profile = Some(profile.clone());
+            config.save()?;
+            println!("Default profile set to '{}'", profile);
+        }
+
+        ConfigCommand::Show => {
+            let path = ConfigFile::config_path()?;
+            let config = ConfigFile::load()?;
+            if config.profiles.is_empty() {
+                if path.exists() {
+                    println!("Config file exists at {} but has no profiles", path.display());
+                } else {
+                    println!("No config file found at {}", path.display());
+                }
+                println!("Run 'crusty config init quickstart' to create one");
+            } else {
+                println!("Config: {}", path.display());
+                if let Some(default) = &config.default_profile {
+                    println!("Default profile: {}", default);
+                }
+                println!("\nProfiles:");
+                for (name, profile) in &config.profiles {
+                    let marker = if config.default_profile.as_deref() == Some(name.as_str()) {
+                        " (default)"
+                    } else {
+                        ""
+                    };
+                    println!("  {}{} -> {}", name, marker, profile.ledger_url);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    let config = load_config(&cli.env_file)?;
-    let ledger = JsonApiLedger::new(config)?;
-    let service = LedgerService::new(ledger);
-
     match cli.command {
-        Command::Party(args) => match args.command {
-            PartyCommand::List { all, system } => {
-                let filter = PartyFilter {
-                    include_remote: all,
-                    include_system: system,
-                };
-                let parties = service.list_parties(&filter)?;
-                for party in &parties {
-                    let local_marker = if party.is_local { "local" } else { "remote" };
-                    println!("[{}] {}", local_marker, party.id);
+        Command::Config(args) => run_config_command(args.command),
+
+        command => {
+            let config = load_config(cli.profile.as_deref(), cli.env_file.as_deref())?;
+            let ledger = JsonApiLedger::new(config)?;
+            let service = LedgerService::new(ledger);
+
+            match command {
+                Command::Party(args) => match args.command {
+                    PartyCommand::List { all, system } => {
+                        let filter = PartyFilter {
+                            include_remote: all,
+                            include_system: system,
+                        };
+                        let parties = service.list_parties(&filter)?;
+                        for party in &parties {
+                            let local_marker = if party.is_local { "local" } else { "remote" };
+                            println!("[{}] {}", local_marker, party.id);
+                        }
+                    }
+
+                    PartyCommand::Create { hint } => {
+                        let hint = hint.map(PartyHint::new);
+                        let party = service.create_party(hint.as_ref())?;
+                        println!("{}", party.id);
+                    }
+
+                    PartyCommand::Get { hint } => {
+                        let party = service.find_local_party_by_hint(&hint)?;
+                        println!("{}", party.id);
+                    }
+                },
+
+                Command::ParticipantId => {
+                    let id = service.get_participant_id()?;
+                    println!("{}", id);
                 }
+
+                Command::Config(_) => unreachable!(),
             }
 
-            PartyCommand::Create { hint } => {
-                let hint = hint.map(PartyHint::new);
-                let party = service.create_party(hint.as_ref())?;
-                println!("{}", party.id);
-            }
-
-            PartyCommand::Get { hint } => {
-                let party = service.find_local_party_by_hint(&hint)?;
-                println!("{}", party.id);
-            }
-        },
-
-        Command::ParticipantId => {
-            let id = service.get_participant_id()?;
-            println!("{}", id);
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
 fn main() {

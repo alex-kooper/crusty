@@ -3,9 +3,13 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "crusty", about = "A minimal CLI for Canton Network")]
 pub struct Cli {
-    /// Path to .env file with connection settings
-    #[arg(long, default_value = ".env")]
-    pub env_file: String,
+    /// Profile to use from ~/.crusty/config.toml
+    #[arg(short, long)]
+    pub profile: Option<String>,
+
+    /// Path to .env file (overrides config.toml)
+    #[arg(long)]
+    pub env_file: Option<String>,
 
     #[command(subcommand)]
     pub command: Command,
@@ -18,6 +22,33 @@ pub enum Command {
 
     /// Show the participant node ID
     ParticipantId,
+
+    /// Manage configuration profiles
+    Config(ConfigArgs),
+}
+
+#[derive(Parser)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub command: ConfigCommand,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommand {
+    /// Initialize a config profile from a template
+    Init {
+        /// Template name (e.g. "quickstart")
+        template: String,
+    },
+
+    /// Set the default profile
+    Use {
+        /// Profile name to set as default
+        profile: String,
+    },
+
+    /// Show current configuration
+    Show,
 }
 
 #[derive(Parser)]
