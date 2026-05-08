@@ -18,8 +18,6 @@ canton-api-client = "3.4.12-0.1.0"
 derive_more = { version = "2", features = ["as_ref", "constructor", "display", "from"] }
 thiserror = "2"
 url = "2"
-
-[dev-dependencies]
 dotenvy = "0.15"
 
 [features]
