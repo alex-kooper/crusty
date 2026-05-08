@@ -56,3 +56,7 @@ fn is_system_party(party: &Party) -> bool {
     let id: &str = party.id.as_ref();
     SYSTEM_PARTY_PREFIXES.iter().any(|prefix| id.starts_with(prefix))
 }
+
+#[cfg(test)]
+#[path = "services_tests.rs"]
+mod tests;

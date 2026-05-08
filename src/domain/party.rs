@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use derive_more::{AsRef, Constructor, Display, From};
 
 /// A Canton party identifier (e.g. "app_user_quickstart::122069c2...")
-#[derive(Constructor, Display, From, AsRef)]
+#[derive(Clone, Constructor, Display, From, AsRef)]
 #[as_ref(str)]
 pub struct PartyId(String);
 
@@ -13,7 +13,7 @@ pub struct PartyId(String);
 pub struct PartyHint(String);
 
 /// Party details as known to the participant node
-#[derive(Constructor)]
+#[derive(Clone, Constructor)]
 pub struct Party {
     pub id: PartyId,
     pub is_local: bool,
