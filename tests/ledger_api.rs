@@ -144,3 +144,21 @@ fn test_resolve_party_by_hint() {
     println!("  Resolved: {}", found.id);
     println!();
 }
+
+#[test]
+fn test_whoami() {
+    let service = create_service();
+    println!("\n--- Whoami ---");
+    let user = service.get_authenticated_user().expect("whoami failed");
+    let id_str: &str = user.id.as_ref();
+    assert!(!id_str.is_empty(), "user ID should not be empty");
+    println!("  User ID: {}", user.id);
+    if let Some(username) = &user.username {
+        println!("  Username: {}", username);
+    }
+    if let Some(party) = &user.primary_party {
+        println!("  Primary party: {}", party);
+    }
+    assert!(user.primary_party.is_some(), "should have a primary party");
+    println!();
+}

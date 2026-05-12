@@ -23,6 +23,9 @@ pub enum Command {
     /// Show the participant node ID
     ParticipantId,
 
+    /// Show the authenticated user and primary party
+    Whoami,
+
     /// Manage configuration profiles
     Config(ConfigArgs),
 }

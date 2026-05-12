@@ -33,6 +33,10 @@ impl Ledger for MockLedger {
     fn get_participant_id(&self) -> Result<ParticipantId, LedgerError> {
         unimplemented!()
     }
+
+    fn get_authenticated_user(&self) -> Result<User, LedgerError> {
+        unimplemented!()
+    }
 }
 
 fn make_party(id: &str, is_local: bool) -> Party {

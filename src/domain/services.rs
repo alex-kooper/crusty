@@ -1,6 +1,7 @@
 use super::error::{LedgerError, PartyError};
 use super::ledger::Ledger;
 use super::party::{Party, ParticipantId, PartyHint, PartyId};
+use super::user::User;
 
 pub struct LedgerService<L: Ledger> {
     ledger: L,
@@ -52,6 +53,10 @@ impl<L: Ledger> LedgerService<L> {
 
     pub fn get_participant_id(&self) -> Result<ParticipantId, LedgerError> {
         self.ledger.get_participant_id()
+    }
+
+    pub fn get_authenticated_user(&self) -> Result<User, LedgerError> {
+        self.ledger.get_authenticated_user()
     }
 }
 

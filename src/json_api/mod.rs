@@ -8,6 +8,7 @@ use crate::config::LedgerConfig;
 use crate::domain::error::{LedgerError, PartyError};
 use crate::domain::ledger::Ledger;
 use crate::domain::party::{Party, ParticipantId, PartyHint, PartyId};
+use crate::domain::user::{User, UserId};
 
 pub struct JsonApiLedger {
     client: Client,
@@ -152,5 +153,34 @@ impl Ledger for JsonApiLedger {
             .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
 
         Ok(ParticipantId::new(api_resp.participant_id))
+    }
+
+    fn get_authenticated_user(&self) -> Result<User, LedgerError> {
+        let resp = self.get("/v2/authenticated-user")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().unwrap_or_default();
+            return Err(Self::handle_error(status, &body));
+        }
+
+        let api_resp: models::GetUserResponse = resp
+            .json()
+            .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
+
+        let u = api_resp.user;
+        let username = u
+            .metadata
+            .and_then(|m| m.annotations)
+            .and_then(|a| a.get("username").cloned());
+        let primary_party = u
+            .primary_party
+            .filter(|s| !s.is_empty())
+            .map(PartyId::new);
+
+        Ok(User {
+            id: UserId::new(u.id),
+            username,
+            primary_party,
+        })
     }
 }
