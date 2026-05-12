@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use super::error::{LedgerError, PartyError};
+use super::holding::{Amount, Holding, InstrumentName, TokenBalance};
 use super::ledger::Ledger;
 use super::party::{Party, ParticipantId, PartyHint, PartyId};
 use super::user::User;
@@ -37,7 +40,10 @@ impl<L: Ledger> LedgerService<L> {
             .collect();
 
         match matches.len() {
-            0 => Err(LedgerError::Party(PartyError::NotFound(hint.to_string()))),
+            0 => Err(LedgerError::Party(PartyError::NotFound(format!(
+                "'{}'. Try 'crusty party list {}' to search by prefix",
+                hint, hint
+            )))),
             1 => Ok(matches.remove(0)),
             _ => Err(LedgerError::Party(PartyError::Ambiguous(hint.to_string()))),
         }
@@ -57,6 +63,43 @@ impl<L: Ledger> LedgerService<L> {
 
     pub fn get_authenticated_user(&self) -> Result<User, LedgerError> {
         self.ledger.get_authenticated_user()
+    }
+
+    pub fn get_balance(&self, party: &PartyId) -> Result<Vec<TokenBalance>, LedgerError> {
+        let holdings = self.ledger.query_holdings(party)?;
+
+        let mut by_instrument: HashMap<InstrumentName, (Vec<&Holding>, Amount, Amount, usize)> =
+            HashMap::new();
+
+        for h in &holdings {
+            let entry = by_instrument
+                .entry(h.instrument.name.clone())
+                .or_insert_with(|| (Vec::new(), Amount::zero(), Amount::zero(), 0));
+            entry.0.push(h);
+            if h.locked {
+                entry.2 = entry.2 + h.amount;
+                entry.3 += 1;
+            } else {
+                entry.1 = entry.1 + h.amount;
+            }
+        }
+
+        Ok(by_instrument
+            .into_iter()
+            .map(|(_, (group, available, locked, locked_count))| {
+                let instrument = group[0].instrument.clone();
+                let total = available + locked;
+                let holding_count = group.len();
+                TokenBalance {
+                    instrument,
+                    total,
+                    available,
+                    locked,
+                    holding_count,
+                    locked_count,
+                }
+            })
+            .collect())
     }
 }
 

@@ -15,7 +15,8 @@ oauth2 = "5"
 open = "5"
 anyhow = "1"
 canton-api-client = "3.4.12-0.1.0"
-derive_more = { version = "2", features = ["as_ref", "constructor", "display", "from"] }
+derive_more = { version = "2", features = ["add", "as_ref", "constructor", "display", "from", "sum"] }
+rust_decimal = "1"
 thiserror = "2"
 toml = "0.8"
 url = "2"

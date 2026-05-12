@@ -156,6 +156,31 @@ fn run() -> Result<()> {
                     println!("{}", id);
                 }
 
+                Command::Balance { party } => {
+                    let party_id = match party {
+                        Some(hint) => service.resolve_party_by_hint(&hint)?.id,
+                        None => {
+                            let user = service.get_authenticated_user()?;
+                            user.primary_party
+                                .ok_or_else(|| anyhow::anyhow!("no primary party set for authenticated user"))?
+                        }
+                    };
+                    println!("Party: {}\n", party_id);
+                    let balances = service.get_balance(&party_id)?;
+                    if balances.is_empty() {
+                        println!("No holdings found");
+                    } else {
+                        for b in &balances {
+                            println!("{} ({} holdings)", b.instrument.name, b.holding_count);
+                            println!("  Total:     {}", b.total);
+                            println!("  Available: {}", b.available);
+                            if b.locked_count > 0 {
+                                println!("  Locked:    {} ({} holdings)", b.locked, b.locked_count);
+                            }
+                        }
+                    }
+                }
+
                 Command::Whoami => {
                     let user = service.get_authenticated_user()?;
                     if let Some(username) = &user.username {

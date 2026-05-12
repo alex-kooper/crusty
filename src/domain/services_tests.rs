@@ -37,6 +37,10 @@ impl Ledger for MockLedger {
     fn get_authenticated_user(&self) -> Result<User, LedgerError> {
         unimplemented!()
     }
+
+    fn query_holdings(&self, _party: &PartyId) -> Result<Vec<Holding>, LedgerError> {
+        unimplemented!()
+    }
 }
 
 fn make_party(id: &str, is_local: bool) -> Party {

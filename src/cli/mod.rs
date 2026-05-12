@@ -23,6 +23,12 @@ pub enum Command {
     /// Show the participant node ID
     ParticipantId,
 
+    /// Show token balance for a party
+    Balance {
+        /// Party hint (defaults to primary party if omitted)
+        party: Option<String>,
+    },
+
     /// Show the authenticated user and primary party
     Whoami,
 

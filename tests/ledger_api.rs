@@ -162,3 +162,24 @@ fn test_whoami() {
     assert!(user.primary_party.is_some(), "should have a primary party");
     println!();
 }
+
+#[test]
+fn test_balance() {
+    let service = create_service();
+    println!("\n--- Balance ---");
+    let user = service.get_authenticated_user().expect("whoami failed");
+    let party_id = user.primary_party.expect("should have primary party");
+    println!("  Party: {}", party_id);
+
+    let balances = service.get_balance(&party_id).expect("get_balance failed");
+    assert!(!balances.is_empty(), "should have at least one token balance");
+    for b in &balances {
+        println!("  {} ({} holdings)", b.instrument.name, b.holding_count);
+        println!("    Total:     {}", b.total);
+        println!("    Available: {}", b.available);
+        if b.locked_count > 0 {
+            println!("    Locked:    {} ({} holdings)", b.locked, b.locked_count);
+        }
+    }
+    println!();
+}

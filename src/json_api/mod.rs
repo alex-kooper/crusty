@@ -6,6 +6,7 @@ use url::Url;
 use crate::auth;
 use crate::config::LedgerConfig;
 use crate::domain::error::{LedgerError, PartyError};
+use crate::domain::holding::{Amount, Holding, InstrumentId, InstrumentName};
 use crate::domain::ledger::Ledger;
 use crate::domain::party::{Party, ParticipantId, PartyHint, PartyId};
 use crate::domain::user::{User, UserId};
@@ -47,6 +48,21 @@ impl JsonApiLedger {
             .json(body)
             .send()
             .map_err(|e| LedgerError::ConnectionFailed(e.to_string()))
+    }
+
+    fn get_ledger_end_offset(&self) -> Result<i64, LedgerError> {
+        let resp = self.get("/v2/state/ledger-end")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().unwrap_or_default();
+            return Err(Self::handle_error(status, &body));
+        }
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|e| LedgerError::Api(format!("failed to parse ledger-end: {}", e)))?;
+        json["offset"]
+            .as_i64()
+            .ok_or_else(|| LedgerError::Api("missing offset in ledger-end".to_string()))
     }
 
     fn handle_error(status: StatusCode, body: &str) -> LedgerError {
@@ -153,6 +169,68 @@ impl Ledger for JsonApiLedger {
             .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
 
         Ok(ParticipantId::new(api_resp.participant_id))
+    }
+
+    fn query_holdings(&self, party: &PartyId) -> Result<Vec<Holding>, LedgerError> {
+        let offset = self.get_ledger_end_offset()?;
+        let party_id = party.to_string();
+        let request_body = serde_json::json!({
+            "activeAtOffset": offset,
+            "eventFormat": {
+                "filtersByParty": {
+                    party_id: {
+                        "cumulative": [{
+                            "identifierFilter": {
+                                "InterfaceFilter": {
+                                    "value": {
+                                        "interfaceId": "#splice-api-token-holding-v1:Splice.Api.Token.HoldingV1:Holding",
+                                        "includeInterfaceView": true,
+                                        "includeCreatedEventBlob": false
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                },
+                "verbose": true
+            }
+        });
+
+        let resp = self.post_json("/v2/state/active-contracts", &request_body)?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().unwrap_or_default();
+            return Err(Self::handle_error(status, &body));
+        }
+
+        let items: Vec<serde_json::Value> = resp
+            .json()
+            .map_err(|e| LedgerError::Api(format!("failed to parse active-contracts: {}", e)))?;
+
+        items
+            .iter()
+            .flat_map(|item| {
+                item["contractEntry"]["JsActiveContract"]["createdEvent"]["interfaceViews"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+            })
+            .filter_map(|view| view.get("viewValue"))
+            .map(|v| {
+                let amount = Amount::parse(v["amount"].as_str().unwrap_or("0"))
+                    .map_err(|e| LedgerError::Api(format!("invalid amount: {}", e)))?;
+
+                Ok(Holding {
+                    owner: PartyId::new(v["owner"].as_str().unwrap_or_default().to_string()),
+                    instrument: InstrumentId {
+                        admin: PartyId::new(v["instrumentId"]["admin"].as_str().unwrap_or_default().to_string()),
+                        name: InstrumentName::new(v["instrumentId"]["id"].as_str().unwrap_or_default().to_string()),
+                    },
+                    amount,
+                    locked: !v["lock"].is_null(),
+                })
+            })
+            .collect()
     }
 
     fn get_authenticated_user(&self) -> Result<User, LedgerError> {
