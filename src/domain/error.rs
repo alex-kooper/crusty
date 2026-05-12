@@ -9,6 +9,9 @@ pub enum PartyError {
 
     #[error("party already exists: {0}")]
     AlreadyExists(String),
+
+    #[error("ambiguous party hint '{0}': matches multiple parties")]
+    Ambiguous(String),
 }
 
 #[derive(Debug, Error)]

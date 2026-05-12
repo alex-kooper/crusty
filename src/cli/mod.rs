@@ -61,24 +61,17 @@ pub struct PartyArgs {
 pub enum PartyCommand {
     /// List parties visible to this node
     List {
+        /// Filter by party hint prefix
+        hint: Option<String>,
+
         /// Include remote (non-local) parties
         #[arg(short, long)]
         all: bool,
-
-        /// Include system parties (participant, DSO, sv)
-        #[arg(short, long)]
-        system: bool,
     },
 
     /// Create a new party
     Create {
         /// Party name hint (optional; Canton generates a UUID if omitted)
         hint: Option<String>,
-    },
-
-    /// Get a party by hint (searches local parties)
-    Get {
-        /// Party hint to search for
-        hint: String,
     },
 }

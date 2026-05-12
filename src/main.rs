@@ -7,7 +7,7 @@ use url::Url;
 use crusty::cli::{Cli, Command, ConfigCommand, PartyCommand};
 use crusty::config::{AuthConfig, ConfigFile, LedgerConfig};
 use crusty::domain::party::PartyHint;
-use crusty::domain::services::{LedgerService, PartyFilter};
+use crusty::domain::services::LedgerService;
 use crusty::json_api::JsonApiLedger;
 
 fn load_config_from_env(env_file: Option<&str>) -> Result<LedgerConfig> {
@@ -136,12 +136,8 @@ fn run() -> Result<()> {
 
             match command {
                 Command::Party(args) => match args.command {
-                    PartyCommand::List { all, system } => {
-                        let filter = PartyFilter {
-                            include_remote: all,
-                            include_system: system,
-                        };
-                        let parties = service.list_parties(&filter)?;
+                    PartyCommand::List { hint, all } => {
+                        let parties = service.list_parties(hint.as_deref(), all)?;
                         for party in &parties {
                             let local_marker = if party.is_local { "local" } else { "remote" };
                             println!("[{}] {}", local_marker, party.id);
@@ -151,11 +147,6 @@ fn run() -> Result<()> {
                     PartyCommand::Create { hint } => {
                         let hint = hint.map(PartyHint::new);
                         let party = service.create_party(hint.as_ref())?;
-                        println!("{}", party.id);
-                    }
-
-                    PartyCommand::Get { hint } => {
-                        let party = service.find_local_party_by_hint(&hint)?;
                         println!("{}", party.id);
                     }
                 },

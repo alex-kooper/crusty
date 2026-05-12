@@ -76,7 +76,7 @@ fn to_domain_party(p: models::PartyDetails) -> Party {
 }
 
 impl Ledger for JsonApiLedger {
-    fn list_parties(&self) -> Result<Vec<Party>, LedgerError> {
+    fn list_parties(&self, hint: Option<&str>) -> Result<Vec<Party>, LedgerError> {
         let resp = self.get("/v2/parties")?;
         let status = resp.status();
         if !status.is_success() {
@@ -88,7 +88,16 @@ impl Ledger for JsonApiLedger {
             .json()
             .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
 
-        Ok(api_resp.party_details.into_iter().map(to_domain_party).collect())
+        let parties = api_resp.party_details.into_iter().map(to_domain_party);
+        Ok(match hint {
+            Some(h) => parties
+                .filter(|p| {
+                    let id: &str = p.id.as_ref();
+                    id.starts_with(h)
+                })
+                .collect(),
+            None => parties.collect(),
+        })
     }
 
     fn create_party(&self, hint: Option<&PartyHint>) -> Result<Party, LedgerError> {
