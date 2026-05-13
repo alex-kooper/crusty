@@ -14,8 +14,8 @@ impl Amount {
         Self(Decimal::ZERO)
     }
 
-    pub fn parse(s: &str) -> Result<Self, rust_decimal::Error> {
-        Decimal::from_str(s).map(Self)
+    pub fn parse(s: &str) -> Result<Self, String> {
+        Decimal::from_str(s).map(Self).map_err(|e| e.to_string())
     }
 }
 

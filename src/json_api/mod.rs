@@ -29,11 +29,12 @@ impl JsonApiLedger {
 
     fn get(&self, path: &str) -> Result<reqwest::blocking::Response, LedgerError> {
         let url = format!("{}{}", self.base_url, path);
-        self.client
+        let resp = self.client
             .get(&url)
             .bearer_auth(&self.token)
             .send()
-            .map_err(|e| LedgerError::ConnectionFailed(e.to_string()))
+            .map_err(|e| LedgerError::ConnectionFailed(e.to_string()))?;
+        Self::check_response(resp)
     }
 
     fn post_json<T: serde::Serialize>(
@@ -42,24 +43,36 @@ impl JsonApiLedger {
         body: &T,
     ) -> Result<reqwest::blocking::Response, LedgerError> {
         let url = format!("{}{}", self.base_url, path);
-        self.client
+        let resp = self.client
             .post(&url)
             .bearer_auth(&self.token)
             .json(body)
             .send()
-            .map_err(|e| LedgerError::ConnectionFailed(e.to_string()))
+            .map_err(|e| LedgerError::ConnectionFailed(e.to_string()))?;
+        Self::check_response(resp)
+    }
+
+    fn check_response(
+        resp: reqwest::blocking::Response,
+    ) -> Result<reqwest::blocking::Response, LedgerError> {
+        let status = resp.status();
+        if status.is_success() {
+            Ok(resp)
+        } else {
+            let body = resp.text().unwrap_or_default();
+            Err(Self::handle_error(status, &body))
+        }
+    }
+
+    fn parse_json<T: serde::de::DeserializeOwned>(
+        resp: reqwest::blocking::Response,
+    ) -> Result<T, LedgerError> {
+        resp.json()
+            .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))
     }
 
     fn get_ledger_end_offset(&self) -> Result<i64, LedgerError> {
-        let resp = self.get("/v2/state/ledger-end")?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            return Err(Self::handle_error(status, &body));
-        }
-        let json: serde_json::Value = resp
-            .json()
-            .map_err(|e| LedgerError::Api(format!("failed to parse ledger-end: {}", e)))?;
+        let json: serde_json::Value = Self::parse_json(self.get("/v2/state/ledger-end")?)?;
         json["offset"]
             .as_i64()
             .ok_or_else(|| LedgerError::Api("missing offset in ledger-end".to_string()))
@@ -94,16 +107,8 @@ fn to_domain_party(p: models::PartyDetails) -> Party {
 
 impl Ledger for JsonApiLedger {
     fn list_parties(&self, hint: Option<&str>) -> Result<Vec<Party>, LedgerError> {
-        let resp = self.get("/v2/parties")?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            return Err(Self::handle_error(status, &body));
-        }
-
-        let api_resp: models::ListKnownPartiesResponse = resp
-            .json()
-            .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
+        let api_resp: models::ListKnownPartiesResponse =
+            Self::parse_json(self.get("/v2/parties")?)?;
 
         let parties = api_resp.party_details.into_iter().map(to_domain_party);
         Ok(match hint {
@@ -121,32 +126,16 @@ impl Ledger for JsonApiLedger {
         let mut req = models::AllocatePartyRequest::new();
         req.party_id_hint = hint.map(|h| h.as_ref().to_string());
 
-        let resp = self.post_json("/v2/parties", &req)?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            return Err(Self::handle_error(status, &body));
-        }
-
-        let api_resp: models::AllocatePartyResponse = resp
-            .json()
-            .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
+        let api_resp: models::AllocatePartyResponse =
+            Self::parse_json(self.post_json("/v2/parties", &req)?)?;
 
         Ok(to_domain_party(*api_resp.party_details))
     }
 
     fn get_party(&self, id: &PartyId) -> Result<Party, LedgerError> {
         let path = format!("/v2/parties/{}", id);
-        let resp = self.get(&path)?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            return Err(Self::handle_error(status, &body));
-        }
-
-        let api_resp: models::ListKnownPartiesResponse = resp
-            .json()
-            .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
+        let api_resp: models::ListKnownPartiesResponse =
+            Self::parse_json(self.get(&path)?)?;
 
         api_resp
             .party_details
@@ -157,16 +146,8 @@ impl Ledger for JsonApiLedger {
     }
 
     fn get_participant_id(&self) -> Result<ParticipantId, LedgerError> {
-        let resp = self.get("/v2/parties/participant-id")?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            return Err(Self::handle_error(status, &body));
-        }
-
-        let api_resp: models::GetParticipantIdResponse = resp
-            .json()
-            .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
+        let api_resp: models::GetParticipantIdResponse =
+            Self::parse_json(self.get("/v2/parties/participant-id")?)?;
 
         Ok(ParticipantId::new(api_resp.participant_id))
     }
@@ -196,16 +177,8 @@ impl Ledger for JsonApiLedger {
             }
         });
 
-        let resp = self.post_json("/v2/state/active-contracts", &request_body)?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            return Err(Self::handle_error(status, &body));
-        }
-
-        let items: Vec<serde_json::Value> = resp
-            .json()
-            .map_err(|e| LedgerError::Api(format!("failed to parse active-contracts: {}", e)))?;
+        let items: Vec<serde_json::Value> =
+            Self::parse_json(self.post_json("/v2/state/active-contracts", &request_body)?)?;
 
         items
             .iter()
@@ -217,14 +190,22 @@ impl Ledger for JsonApiLedger {
             })
             .filter_map(|view| view.get("viewValue"))
             .map(|v| {
-                let amount = Amount::parse(v["amount"].as_str().unwrap_or("0"))
-                    .map_err(|e| LedgerError::Api(format!("invalid amount: {}", e)))?;
+                let amount_str = v["amount"].as_str()
+                    .ok_or_else(|| LedgerError::Api("missing 'amount' in holding".to_string()))?;
+                let amount = Amount::parse(amount_str)
+                    .map_err(|e| LedgerError::Api(format!("invalid amount '{}': {}", amount_str, e)))?;
+                let owner = v["owner"].as_str()
+                    .ok_or_else(|| LedgerError::Api("missing 'owner' in holding".to_string()))?;
+                let admin = v["instrumentId"]["admin"].as_str()
+                    .ok_or_else(|| LedgerError::Api("missing 'instrumentId.admin' in holding".to_string()))?;
+                let instrument_name = v["instrumentId"]["id"].as_str()
+                    .ok_or_else(|| LedgerError::Api("missing 'instrumentId.id' in holding".to_string()))?;
 
                 Ok(Holding {
-                    owner: PartyId::new(v["owner"].as_str().unwrap_or_default().to_string()),
+                    owner: PartyId::new(owner.to_string()),
                     instrument: InstrumentId {
-                        admin: PartyId::new(v["instrumentId"]["admin"].as_str().unwrap_or_default().to_string()),
-                        name: InstrumentName::new(v["instrumentId"]["id"].as_str().unwrap_or_default().to_string()),
+                        admin: PartyId::new(admin.to_string()),
+                        name: InstrumentName::new(instrument_name.to_string()),
                     },
                     amount,
                     locked: !v["lock"].is_null(),
@@ -234,16 +215,8 @@ impl Ledger for JsonApiLedger {
     }
 
     fn get_authenticated_user(&self) -> Result<User, LedgerError> {
-        let resp = self.get("/v2/authenticated-user")?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            return Err(Self::handle_error(status, &body));
-        }
-
-        let api_resp: models::GetUserResponse = resp
-            .json()
-            .map_err(|e| LedgerError::Api(format!("failed to parse response: {}", e)))?;
+        let api_resp: models::GetUserResponse =
+            Self::parse_json(self.get("/v2/authenticated-user")?)?;
 
         let u = api_resp.user;
         let username = u
