@@ -68,34 +68,24 @@ impl<L: Ledger> LedgerService<L> {
     pub fn get_balance(&self, party: &PartyId) -> Result<Vec<TokenBalance>, LedgerError> {
         let holdings = self.ledger.query_holdings(party)?;
 
-        let mut by_instrument: HashMap<InstrumentName, (Vec<&Holding>, Amount, Amount, usize)> =
-            HashMap::new();
-
+        let mut grouped: HashMap<InstrumentName, Vec<&Holding>> = HashMap::new();
         for h in &holdings {
-            let entry = by_instrument
-                .entry(h.instrument.name.clone())
-                .or_insert_with(|| (Vec::new(), Amount::zero(), Amount::zero(), 0));
-            entry.0.push(h);
-            if h.locked {
-                entry.2 = entry.2 + h.amount;
-                entry.3 += 1;
-            } else {
-                entry.1 = entry.1 + h.amount;
-            }
+            grouped.entry(h.instrument.name.clone()).or_default().push(h);
         }
 
-        Ok(by_instrument
+        Ok(grouped
             .into_iter()
-            .map(|(_, (group, available, locked, locked_count))| {
+            .map(|(_, group)| {
                 let instrument = group[0].instrument.clone();
-                let total = available + locked;
-                let holding_count = group.len();
+                let available: Amount = group.iter().filter(|h| !h.locked).map(|h| h.amount).sum();
+                let locked: Amount = group.iter().filter(|h| h.locked).map(|h| h.amount).sum();
+                let locked_count = group.iter().filter(|h| h.locked).count();
                 TokenBalance {
                     instrument,
-                    total,
+                    total: available + locked,
                     available,
                     locked,
-                    holding_count,
+                    holding_count: group.len(),
                     locked_count,
                 }
             })

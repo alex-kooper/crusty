@@ -95,6 +95,29 @@ impl JsonApiLedger {
     }
 }
 
+fn parse_holding(v: &serde_json::Value) -> Result<Holding, LedgerError> {
+    let amount_str = v["amount"].as_str()
+        .ok_or_else(|| LedgerError::Api("missing 'amount' in holding".to_string()))?;
+    let amount = Amount::parse(amount_str)
+        .map_err(|e| LedgerError::Api(format!("invalid amount '{}': {}", amount_str, e)))?;
+    let owner = v["owner"].as_str()
+        .ok_or_else(|| LedgerError::Api("missing 'owner' in holding".to_string()))?;
+    let admin = v["instrumentId"]["admin"].as_str()
+        .ok_or_else(|| LedgerError::Api("missing 'instrumentId.admin' in holding".to_string()))?;
+    let instrument_name = v["instrumentId"]["id"].as_str()
+        .ok_or_else(|| LedgerError::Api("missing 'instrumentId.id' in holding".to_string()))?;
+
+    Ok(Holding {
+        owner: PartyId::new(owner.to_string()),
+        instrument: InstrumentId {
+            admin: PartyId::new(admin.to_string()),
+            name: InstrumentName::new(instrument_name.to_string()),
+        },
+        amount,
+        locked: !v["lock"].is_null(),
+    })
+}
+
 fn to_domain_party(p: models::PartyDetails) -> Party {
     Party::new(
         PartyId::new(p.party),
@@ -189,28 +212,7 @@ impl Ledger for JsonApiLedger {
                     .flatten()
             })
             .filter_map(|view| view.get("viewValue"))
-            .map(|v| {
-                let amount_str = v["amount"].as_str()
-                    .ok_or_else(|| LedgerError::Api("missing 'amount' in holding".to_string()))?;
-                let amount = Amount::parse(amount_str)
-                    .map_err(|e| LedgerError::Api(format!("invalid amount '{}': {}", amount_str, e)))?;
-                let owner = v["owner"].as_str()
-                    .ok_or_else(|| LedgerError::Api("missing 'owner' in holding".to_string()))?;
-                let admin = v["instrumentId"]["admin"].as_str()
-                    .ok_or_else(|| LedgerError::Api("missing 'instrumentId.admin' in holding".to_string()))?;
-                let instrument_name = v["instrumentId"]["id"].as_str()
-                    .ok_or_else(|| LedgerError::Api("missing 'instrumentId.id' in holding".to_string()))?;
-
-                Ok(Holding {
-                    owner: PartyId::new(owner.to_string()),
-                    instrument: InstrumentId {
-                        admin: PartyId::new(admin.to_string()),
-                        name: InstrumentName::new(instrument_name.to_string()),
-                    },
-                    amount,
-                    locked: !v["lock"].is_null(),
-                })
-            })
+            .map(parse_holding)
             .collect()
     }
 
