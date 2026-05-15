@@ -183,16 +183,15 @@ fn run() -> Result<()> {
 
                 Command::Whoami => {
                     let user = service.get_authenticated_user()?;
-                    if let Some(username) = &user.username {
-                        println!("User: {} ({})", username, user.id);
-                    } else {
-                        println!("User: {}", user.id);
-                    }
-                    if let Some(party) = &user.primary_party {
-                        println!("Primary party: {}", party);
-                    } else {
-                        println!("Primary party: (none)");
-                    }
+                    println!("User ID:       {}", user.id);
+                    println!("Username:      {}", user.username.as_deref().unwrap_or("(none)"));
+                    println!(
+                        "Primary party: {}",
+                        user.primary_party
+                            .as_ref()
+                            .map(|p| p.to_string())
+                            .unwrap_or_else(|| "(none)".to_string())
+                    );
                 }
 
                 Command::Config(_) => unreachable!(),
